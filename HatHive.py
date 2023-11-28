@@ -183,6 +183,9 @@ class HatHiveApp:
         place_order_button = Button(action_frame, text="Place Order", command=self.add_order)
         place_order_button.pack(side="left", padx=5)
 
+        view_orders_button = Button(action_frame, text="View Orders", command=self.view_orders)
+        view_orders_button.pack(side="left", padx=5)
+
         exit_button = Button(action_frame, text="Exit", command=self.on_closing)
         exit_button.pack(side="left", padx=5)
 
@@ -386,11 +389,61 @@ class HatHiveApp:
             messagebox.showerror("Invalid Date", "The order date is in an incorrect format. Please use YYYY-MM-DD.")
             return
 
-        query = "INSERT INTO orders (customer_id, hat_id, date, quantity) VALUES (%s, %s, %s, %s)"
         try:
-            self.db_manager.execute_query(query, (customer_id, hat_id, order_date, quantity))
+            # Check if customer ID exists
+            customer_query = "SELECT * FROM customers WHERE customer_id = %s"
+            customer_result = self.db_manager.execute_query(customer_query, (customer_id,))
+            if not customer_result:
+                messagebox.showerror("Error", "Customer ID does not exist.")
+                return
+
+            # Check if hat ID exists and if there's enough stock
+            hat_query = "SELECT quantity FROM hats WHERE hat_id = %s"
+            hat_result = self.db_manager.execute_query(hat_query, (hat_id,))
+            if not hat_result:
+                messagebox.showerror("Error", "Hat ID does not exist.")
+                return
+
+            available_quantity = hat_result[0][0]
+            if int(quantity) > available_quantity:
+                messagebox.showerror("Error", "Not enough stock for the hat.")
+                return
+
+            # All checks passed, place the order and update the stock
+            insert_order_query = "INSERT INTO orders (customer_id, hat_id, date, quantity) VALUES (%s, %s, %s, %s)"
+            self.db_manager.execute_query(insert_order_query, (customer_id, hat_id, order_date, quantity))
+
+            # Update hats quantity
+            new_quantity = available_quantity - int(quantity)
+            update_hat_query = "UPDATE hats SET quantity = %s WHERE hat_id = %s"
+            self.db_manager.execute_query(update_hat_query, (new_quantity, hat_id))
+
             messagebox.showinfo("Success", "Order placed successfully.")
             window.destroy()
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    # Add this method to the HatHiveApp class
+
+    def view_orders(self):
+        query = "SELECT * FROM orders"
+        try:
+            records = self.db_manager.execute_query(query)
+            self.query_result.delete('1.0', tk.END)
+
+            # Dynamically compute column widths
+            col_widths = [max(len(str(row[i])) for row in records) for i in range(len(records[0]))]
+
+            headers = ["Order ID", "Customer ID", "Hat ID", "Order Date", "Quantity"]
+            header_string = "".join(h.ljust(col_widths[i] + 2) for i, h in enumerate(headers))
+
+            # Add headers
+            self.query_result.insert(tk.END, header_string + "\n")
+            self.query_result.insert(tk.END, "-" * len(header_string) + "\n")
+
+            for record in records:
+                formatted_record = "".join(str(field).ljust(col_widths[i] + 2) for i, field in enumerate(record))
+                self.query_result.insert(tk.END, formatted_record + "\n")
         except Exception as e:
             messagebox.showerror("Database Error", f"An error occurred: {e}")
 
