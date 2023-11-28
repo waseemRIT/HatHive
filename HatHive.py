@@ -174,7 +174,17 @@ class HatHiveApp:
 
         Button(action_frame, text="View Customers", command=self.view_customers).pack(side="left", padx=5)
         Button(action_frame, text="Add Customer", command=self.add_customer).pack(side="left", padx=5)
-        # ... Add more buttons for other operations like Add Order, View Hats, etc.
+        view_hats_button = Button(action_frame, text="View Hats", command=self.view_hats)
+        view_hats_button.pack(side="left", padx=5)
+
+        add_hat_button = Button(action_frame, text="Add Hat", command=self.add_hat)
+        add_hat_button.pack(side="left", padx=5)
+
+        place_order_button = Button(action_frame, text="Place Order", command=self.add_order)
+        place_order_button.pack(side="left", padx=5)
+
+        exit_button = Button(action_frame, text="Exit", command=self.on_closing)
+        exit_button.pack(side="left", padx=5)
 
     def connect_to_database(self):
         host = self.host_entry.get()
@@ -195,8 +205,20 @@ class HatHiveApp:
         try:
             records = self.db_manager.execute_query(query)
             self.query_result.delete('1.0', tk.END)
+
+            # Dynamically compute column widths
+            col_widths = [max(len(str(row[i])) for row in records) for i in range(len(records[0]))]
+
+            headers = ["ID", "Name", "DOB", "Email", "Contact", "Address"]
+            header_string = "".join(h.ljust(col_widths[i] + 2) for i, h in enumerate(headers))
+
+            # Add headers
+            self.query_result.insert(tk.END, header_string + "\n")
+            self.query_result.insert(tk.END, "-" * len(header_string) + "\n")
+
             for record in records:
-                self.query_result.insert(tk.END, f"{record}\n")
+                formatted_record = "".join(str(field).ljust(col_widths[i] + 2) for i, field in enumerate(record))
+                self.query_result.insert(tk.END, formatted_record + "\n")
         except Exception as e:
             messagebox.showerror("Database Error", f"An error occurred: {e}")
 
@@ -251,6 +273,124 @@ class HatHiveApp:
             messagebox.showinfo("Success", "New customer added successfully.")
             window.destroy()  # Close the add new customer window
             self.view_customers()  # Refresh the customer view
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def view_hats(self):
+        query = "SELECT * FROM hats"
+        try:
+            records = self.db_manager.execute_query(query)
+            self.query_result.delete('1.0', tk.END)
+
+            # Dynamically compute column widths
+            col_widths = [max(len(str(row[i])) for row in records) for i in range(len(records[0]))]
+
+            headers = ["ID", "Brand ID", "Brand Name", "Style", "Size", "Quantity"]
+            header_string = "".join(h.ljust(col_widths[i] + 2) for i, h in enumerate(headers))
+
+            # Add headers
+            self.query_result.insert(tk.END, header_string + "\n")
+            self.query_result.insert(tk.END, "-" * len(header_string) + "\n")
+
+            for record in records:
+                formatted_record = "".join(str(field).ljust(col_widths[i] + 2) for i, field in enumerate(record))
+                self.query_result.insert(tk.END, formatted_record + "\n")
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def add_hat(self):
+        add_hat_window = tk.Toplevel(self.master)
+        add_hat_window.title("Add New Hat")
+
+        Label(add_hat_window, text="Brand ID:").grid(row=0, column=0)
+        brand_id_entry = Entry(add_hat_window)
+        brand_id_entry.grid(row=0, column=1)
+
+        Label(add_hat_window, text="Brand Name:").grid(row=1, column=0)
+        brand_name_entry = Entry(add_hat_window)
+        brand_name_entry.grid(row=1, column=1)
+
+        Label(add_hat_window, text="Style:").grid(row=2, column=0)
+        style_entry = Entry(add_hat_window)
+        style_entry.grid(row=2, column=1)
+
+        Label(add_hat_window, text="Size:").grid(row=3, column=0)
+        size_entry = Entry(add_hat_window)
+        size_entry.grid(row=3, column=1)
+
+        Label(add_hat_window, text="Quantity:").grid(row=4, column=0)
+        quantity_entry = Entry(add_hat_window)
+        quantity_entry.grid(row=4, column=1)
+
+        submit_button = Button(add_hat_window, text="Submit", command=lambda: self.submit_new_hat(
+            brand_id_entry.get(),
+            brand_name_entry.get(),
+            style_entry.get(),
+            size_entry.get(),
+            quantity_entry.get(),
+            add_hat_window
+        ))
+        submit_button.grid(row=5, column=1, pady=5)
+
+    def submit_new_hat(self, brand_id, brand_name, style, size, quantity, window):
+        if not all([brand_id, brand_name, style, size, quantity]):
+            messagebox.showwarning("Warning", "All fields are required to add a new hat.")
+            return
+
+        # Additional validation can go here (e.g., check if size is an integer)
+
+        query = "INSERT INTO hats (brand_id, brand_name, style, size, quantity) VALUES (%s, %s, %s, %s, %s)"
+        try:
+            self.db_manager.execute_query(query, (brand_id, brand_name, style, size, quantity))
+            messagebox.showinfo("Success", "New hat added successfully.")
+            window.destroy()
+            self.view_hats()  # Optionally refresh the hats view
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def add_order(self):
+        add_order_window = tk.Toplevel(self.master)
+        add_order_window.title("Place New Order")
+
+        Label(add_order_window, text="Customer ID:").grid(row=0, column=0)
+        customer_id_entry = Entry(add_order_window)
+        customer_id_entry.grid(row=0, column=1)
+
+        Label(add_order_window, text="Hat ID:").grid(row=1, column=0)
+        hat_id_entry = Entry(add_order_window)
+        hat_id_entry.grid(row=1, column=1)
+
+        Label(add_order_window, text="Order Date (YYYY-MM-DD):").grid(row=2, column=0)
+        order_date_entry = Entry(add_order_window)
+        order_date_entry.grid(row=2, column=1)
+
+        Label(add_order_window, text="Quantity:").grid(row=3, column=0)
+        quantity_entry = Entry(add_order_window)
+        quantity_entry.grid(row=3, column=1)
+
+        submit_button = Button(add_order_window, text="Submit", command=lambda: self.submit_new_order(
+            customer_id_entry.get(),
+            hat_id_entry.get(),
+            order_date_entry.get(),
+            quantity_entry.get(),
+            add_order_window
+        ))
+        submit_button.grid(row=4, column=1, pady=5)
+
+    def submit_new_order(self, customer_id, hat_id, order_date, quantity, window):
+        if not all([customer_id, hat_id, order_date, quantity]):
+            messagebox.showwarning("Warning", "All fields are required to place an order.")
+            return
+
+        if not validate_date(order_date):
+            messagebox.showerror("Invalid Date", "The order date is in an incorrect format. Please use YYYY-MM-DD.")
+            return
+
+        query = "INSERT INTO orders (customer_id, hat_id, date, quantity) VALUES (%s, %s, %s, %s)"
+        try:
+            self.db_manager.execute_query(query, (customer_id, hat_id, order_date, quantity))
+            messagebox.showinfo("Success", "Order placed successfully.")
+            window.destroy()
         except Exception as e:
             messagebox.showerror("Database Error", f"An error occurred: {e}")
 
