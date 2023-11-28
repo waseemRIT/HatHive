@@ -2,6 +2,7 @@ import mysql.connector
 from mysql.connector import Error
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, Entry, Button, Label, LabelFrame, Frame
+from datetime import datetime
 
 TABLES = {
     'customers': (
@@ -101,10 +102,34 @@ class DatabaseManager:
                 print("OK")
         cursor.close()
 
+
+    def execute_query(self, query, params=None):
+        with self.connection.cursor() as cursor:
+            try:
+                cursor.execute(query, params or ())
+                if query.strip().lower().startswith("select"):
+                    return cursor.fetchall()  # Return the result for 'select' queries
+                self.connection.commit()  # Commit changes for 'insert', 'update', 'delete'
+                return None  # For non-select queries, we don't need to return anything
+            except Error as e:
+                print(f"An error occurred: {e}")
+                raise
+
     def close(self):
         if self.connection and self.connection.is_connected():
             self.connection.close()
             print("MySQL connection is closed")
+
+
+# Utility function to validate the date format
+def validate_date(date_text):
+    try:
+        if date_text != datetime.strptime(date_text, "%Y-%m-%d").strftime('%Y-%m-%d'):
+            raise ValueError
+        return True
+    except ValueError:
+        return False
+
 
 
 class HatHiveApp:
@@ -155,14 +180,17 @@ class HatHiveApp:
         host = self.host_entry.get()
         user = self.user_entry.get()
         password = self.password_entry.get()
-        self.db_manager = DatabaseManager(host, user, password, 'HatHive')
-        self.db_manager.connect()
-        messagebox.showinfo("Connection", "Connected to database successfully.")
+        try:
+            self.db_manager = DatabaseManager(host, user, password, 'HatHive')
+            self.db_manager.connect()
+            self.db_manager.create_tables()  # Create tables after connection
+            messagebox.showinfo("Connection", "Connected to the database successfully.")
+        except Error as e:
+            messagebox.showerror("Database Connection", f"An error occurred: {e}")
 
+
+    # Function to fetch and display customers from the database
     def view_customers(self):
-        if not self.db_manager or not self.db_manager.connection:
-            messagebox.showerror("Error", "Not connected to the database")
-            return
         query = "SELECT * FROM customers"
         try:
             records = self.db_manager.execute_query(query)
@@ -170,57 +198,61 @@ class HatHiveApp:
             for record in records:
                 self.query_result.insert(tk.END, f"{record}\n")
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {e}")
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
 
+    # Function to add a new customer to the database
     def add_customer(self):
-        # This function will create a new window asking for the details of the new customer
-        self.new_customer_window = tk.Toplevel(self.master)
-        self.new_customer_window.title("Add New Customer")
+        # Open a new window to input new customer details
+        add_window = tk.Toplevel(self.master)
+        add_window.title("Add New Customer")
 
-        Label(self.new_customer_window, text="Name:").grid(row=0, column=0)
-        self.customer_name_entry = Entry(self.new_customer_window)
-        self.customer_name_entry.grid(row=0, column=1)
+        Label(add_window, text="Name:").grid(row=0, column=0)
+        name_entry = Entry(add_window)
+        name_entry.grid(row=0, column=1)
 
-        Label(self.new_customer_window, text="Date of Birth (YYYY-MM-DD):").grid(row=1, column=0)
-        self.customer_dob_entry = Entry(self.new_customer_window)
-        self.customer_dob_entry.grid(row=1, column=1)
+        Label(add_window, text="Date of Birth (YYYY-MM-DD):").grid(row=1, column=0)
+        dob_entry = Entry(add_window)
+        dob_entry.grid(row=1, column=1)
 
-        Label(self.new_customer_window, text="Email:").grid(row=2, column=0)
-        self.customer_email_entry = Entry(self.new_customer_window)
-        self.customer_email_entry.grid(row=2, column=1)
+        Label(add_window, text="Email:").grid(row=2, column=0)
+        email_entry = Entry(add_window)
+        email_entry.grid(row=2, column=1)
 
-        Label(self.new_customer_window, text="Contact Info:").grid(row=3, column=0)
-        self.customer_contact_entry = Entry(self.new_customer_window)
-        self.customer_contact_entry.grid(row=3, column=1)
+        Label(add_window, text="Contact Info:").grid(row=3, column=0)
+        contact_info_entry = Entry(add_window)
+        contact_info_entry.grid(row=3, column=1)
 
-        Label(self.new_customer_window, text="Address:").grid(row=4, column=0)
-        self.customer_address_entry = Entry(self.new_customer_window)
-        self.customer_address_entry.grid(row=4, column=1)
+        Label(add_window, text="Address:").grid(row=4, column=0)
+        address_entry = Entry(add_window)
+        address_entry.grid(row=4, column=1)
 
-        Button(self.new_customer_window, text="Submit", command=self.submit_new_customer).grid(row=5, column=1)
+        submit_button = Button(add_window, text="Submit", command=lambda: self.submit_new_customer(
+            name_entry.get(),
+            dob_entry.get(),
+            email_entry.get(),
+            contact_info_entry.get(),
+            address_entry.get(),
+            add_window
+        ))
+        submit_button.grid(row=5, column=1, pady=5)
 
-    def submit_new_customer(self):
-        # Retrieve the entered information
-        name = self.customer_name_entry.get()
-        dob = self.customer_dob_entry.get()
-        email = self.customer_email_entry.get()
-        contact = self.customer_contact_entry.get()
-        address = self.customer_address_entry.get()
+    def submit_new_customer(self, name, dob, email, contact_info, address, window):
+        if not all([name, dob, email, contact_info, address]):
+            messagebox.showwarning("Warning", "All fields are required to add a new customer.")
+            return
 
-        # Input validation can be performed here
+        if not validate_date(dob):
+            messagebox.showerror("Invalid Date", "The Date of Birth is in an incorrect format. Please use YYYY-MM-DD.")
+            return
 
-        # SQL query to insert the new customer
         query = "INSERT INTO customers (name, DOB, email, contact_info, address) VALUES (%s, %s, %s, %s, %s)"
-        params = (name, dob, email, contact, address)
-
         try:
-            self.db_manager.execute_query(query, params)
+            self.db_manager.execute_query(query, (name, dob, email, contact_info, address))
             messagebox.showinfo("Success", "New customer added successfully.")
-            self.new_customer_window.destroy()  # Close the add customer window
+            window.destroy()  # Close the add new customer window
+            self.view_customers()  # Refresh the customer view
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {e}")
-
-
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
 
     def on_closing(self):
         if self.db_manager:
