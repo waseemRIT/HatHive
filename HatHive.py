@@ -87,6 +87,17 @@ class DatabaseManager:
         except Error as e:
             print(f"Error while connecting to MySQL: {e}")
 
+    def clear_tables(self):
+        tables_to_clear = ['customers', 'orders', 'hats', 'bills', 'delivery']
+        with self.connection.cursor() as cursor:
+            for table in tables_to_clear:
+                try:
+                    cursor.execute(f"TRUNCATE TABLE {table}")
+                    self.connection.commit()
+                except Error as e:
+                    print(f"An error occurred while clearing {table}: {e}")
+                    raise
+
     def create_tables(self):
         cursor = self.connection.cursor()
         for table_name, ddl in TABLES.items():
@@ -101,7 +112,6 @@ class DatabaseManager:
             else:
                 print("OK")
         cursor.close()
-
 
     def execute_query(self, query, params=None):
         with self.connection.cursor() as cursor:
@@ -129,7 +139,6 @@ def validate_date(date_text):
         return True
     except ValueError:
         return False
-
 
 
 class HatHiveApp:
@@ -164,30 +173,32 @@ class HatHiveApp:
         # Right panel for displaying results
         output_frame = Frame(self.master, padx=5, pady=5)
         output_frame.pack(side="right", expand=True, fill="both")
-
         self.query_result = scrolledtext.ScrolledText(output_frame, height=20)
         self.query_result.pack(fill="both", expand=True)
 
-        # Action buttons for database operations
-        action_frame = Frame(input_frame, padx=5, pady=5)
-        action_frame.grid(row=4, column=0, columnspan=2, sticky="ew")
+        # Customer related actions
+        customer_action_frame = Frame(input_frame, padx=5, pady=5)
+        customer_action_frame.grid(row=4, column=0, columnspan=2, sticky="ew")
+        Button(customer_action_frame, text="View Customers", command=self.view_customers).pack(side="left", padx=5)
+        Button(customer_action_frame, text="Add Customer", command=self.add_customer).pack(side="left", padx=5)
 
-        Button(action_frame, text="View Customers", command=self.view_customers).pack(side="left", padx=5)
-        Button(action_frame, text="Add Customer", command=self.add_customer).pack(side="left", padx=5)
-        view_hats_button = Button(action_frame, text="View Hats", command=self.view_hats)
-        view_hats_button.pack(side="left", padx=5)
+        # Hat related actions
+        hat_action_frame = Frame(input_frame, padx=5, pady=5)
+        hat_action_frame.grid(row=5, column=0, columnspan=2, sticky="ew")
+        Button(hat_action_frame, text="View Hats", command=self.view_hats).pack(side="left", padx=5)
+        Button(hat_action_frame, text="Add Hat", command=self.add_hat).pack(side="left", padx=5)
 
-        add_hat_button = Button(action_frame, text="Add Hat", command=self.add_hat)
-        add_hat_button.pack(side="left", padx=5)
+        # Order related actions
+        order_action_frame = Frame(input_frame, padx=5, pady=5)
+        order_action_frame.grid(row=6, column=0, columnspan=2, sticky="ew")
+        Button(order_action_frame, text="Place Order", command=self.add_order).pack(side="left", padx=5)
+        Button(order_action_frame, text="View Orders", command=self.view_orders).pack(side="left", padx=5)
 
-        place_order_button = Button(action_frame, text="Place Order", command=self.add_order)
-        place_order_button.pack(side="left", padx=5)
-
-        view_orders_button = Button(action_frame, text="View Orders", command=self.view_orders)
-        view_orders_button.pack(side="left", padx=5)
-
-        exit_button = Button(action_frame, text="Exit", command=self.on_closing)
-        exit_button.pack(side="left", padx=5)
+        # Application-wide actions
+        app_action_frame = Frame(input_frame, padx=5, pady=5)
+        app_action_frame.grid(row=7, column=0, columnspan=2, sticky="ew")
+        Button(app_action_frame, text="Clear All Data", command=self.clear_all_data).pack(side="left", padx=5)
+        Button(app_action_frame, text="Exit", command=self.on_closing).pack(side="left", padx=5)
 
     def connect_to_database(self):
         host = self.host_entry.get()
@@ -200,7 +211,6 @@ class HatHiveApp:
             messagebox.showinfo("Connection", "Connected to the database successfully.")
         except Error as e:
             messagebox.showerror("Database Connection", f"An error occurred: {e}")
-
 
     # Function to fetch and display customers from the database
     def view_customers(self):
@@ -446,6 +456,21 @@ class HatHiveApp:
                 self.query_result.insert(tk.END, formatted_record + "\n")
         except Exception as e:
             messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def clear_all_data(self):
+        confirm = messagebox.askyesno("Confirm", "Are you sure you want to delete all data?")
+        if confirm:
+            try:
+                self.db_manager.execute_query("SET FOREIGN_KEY_CHECKS = 0;")  # Disable foreign key checks
+                self.db_manager.execute_query("TRUNCATE TABLE bills;")
+                self.db_manager.execute_query("TRUNCATE TABLE delivery;")
+                self.db_manager.execute_query("TRUNCATE TABLE orders;")
+                self.db_manager.execute_query("TRUNCATE TABLE hats;")
+                self.db_manager.execute_query("TRUNCATE TABLE customers;")
+                self.db_manager.execute_query("SET FOREIGN_KEY_CHECKS = 1;")  # Re-enable foreign key checks
+                messagebox.showinfo("Success", "All data has been deleted.")
+            except Exception as e:
+                messagebox.showerror("Database Error", f"An error occurred: {e}")
 
     def on_closing(self):
         if self.db_manager:
