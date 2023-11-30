@@ -1,4 +1,4 @@
-# HatHive: Hat Sales Management System 🧢
+# HatHub: Hat Sales Management System 🧢
 
 HatHive is a comprehensive desktop application 🖥️ crafted to streamline the sales and management of hat-related merchandise. This powerful tool harnesses a MySQL backend to store and manage data about customers 👤, hats 🎩, orders 📦, and inventory 📈 with finesse.
 
