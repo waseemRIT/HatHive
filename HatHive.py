@@ -2,7 +2,9 @@ import mysql.connector
 from mysql.connector import Error
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, Entry, Button, Label, LabelFrame, Frame
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
+import hashlib
 
 TABLES = {
     'customers': (
@@ -36,6 +38,7 @@ TABLES = {
         "  `style` varchar(255) NOT NULL,"
         "  `size` int NOT NULL,"
         "  `quantity` int NOT NULL,"
+        "  `price` decimal(10,2) NOT NULL,"
         "  PRIMARY KEY (`hat_id`)"
         ") ENGINE=InnoDB"
     ),
@@ -43,9 +46,11 @@ TABLES = {
         "CREATE TABLE `bills` ("
         "  `bill_id` int NOT NULL AUTO_INCREMENT,"
         "  `order_id` int NOT NULL,"
-        "  `tax` int NOT NULL,"
-        "  `price` int NOT NULL,"
+        "  `tax` decimal(10,2) NOT NULL,"
+        "  `price` decimal(10,2) NOT NULL,"
         "  `payment_method` varchar(255) NOT NULL,"
+        "  `payment_status` varchar(255),"
+        "  `transaction_id` varchar(255),"
         "  PRIMARY KEY (`bill_id`),"
         "  FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE"
         ") ENGINE=InnoDB"
@@ -87,18 +92,26 @@ class DatabaseManager:
         except Error as e:
             print(f"Error while connecting to MySQL: {e}")
 
-    def clear_tables(self):
-        tables_to_clear = ['customers', 'orders', 'hats', 'bills', 'delivery']
+    def ensure_table_columns(self):
+        # Ensure the bills table has all the required columns
+        alter_queries = [
+            "ALTER TABLE bills ADD COLUMN payment_status VARCHAR(255)",
+            "ALTER TABLE bills ADD COLUMN transaction_id VARCHAR(255)"
+        ]
+
         with self.connection.cursor() as cursor:
-            for table in tables_to_clear:
+            for query in alter_queries:
                 try:
-                    cursor.execute(f"TRUNCATE TABLE {table}")
+                    cursor.execute(query)
                     self.connection.commit()
                 except Error as e:
-                    print(f"An error occurred while clearing {table}: {e}")
-                    raise
+                    if e.errno == mysql.connector.errorcode.ER_DUP_FIELDNAME:
+                        print("Column already exists: ", e)
+                    else:
+                        raise
 
     def create_tables(self):
+        self.ensure_table_columns()  # Call this method before creating tables
         cursor = self.connection.cursor()
         for table_name, ddl in TABLES.items():
             try:
@@ -194,6 +207,16 @@ class HatHiveApp:
         Button(order_action_frame, text="Place Order", command=self.add_order).pack(side="left", padx=5)
         Button(order_action_frame, text="View Orders", command=self.view_orders).pack(side="left", padx=5)
 
+        # Delivery related actions
+        delivery_action_frame = Frame(input_frame, padx=5, pady=5)
+        delivery_action_frame.grid(row=8, column=0, columnspan=2, sticky="ew")
+        Button(delivery_action_frame, text="View Deliveries", command=self.view_deliveries).pack(side="left", padx=5)
+
+        # Billing actions
+        billing_action_frame = Frame(input_frame, padx=5, pady=5)
+        billing_action_frame.grid(row=9, column=0, columnspan=2, sticky="ew")
+        Button(billing_action_frame, text="View Bills", command=self.view_bills).pack(side="left", padx=5)
+
         # Application-wide actions
         app_action_frame = Frame(input_frame, padx=5, pady=5)
         app_action_frame.grid(row=7, column=0, columnspan=2, sticky="ew")
@@ -207,7 +230,7 @@ class HatHiveApp:
         try:
             self.db_manager = DatabaseManager(host, user, password, 'HatHive')
             self.db_manager.connect()
-            self.db_manager.create_tables()  # Create tables after connection
+            self.db_manager.create_tables()  # Ensure tables and columns are created after connection
             messagebox.showinfo("Connection", "Connected to the database successfully.")
         except Error as e:
             messagebox.showerror("Database Connection", f"An error occurred: {e}")
@@ -419,7 +442,7 @@ class HatHiveApp:
                 messagebox.showerror("Error", "Not enough stock for the hat.")
                 return
 
-            # All checks passed, place the order and update the stock
+            # All checks passed, place the order
             insert_order_query = "INSERT INTO orders (customer_id, hat_id, date, quantity) VALUES (%s, %s, %s, %s)"
             self.db_manager.execute_query(insert_order_query, (customer_id, hat_id, order_date, quantity))
 
@@ -428,12 +451,117 @@ class HatHiveApp:
             update_hat_query = "UPDATE hats SET quantity = %s WHERE hat_id = %s"
             self.db_manager.execute_query(update_hat_query, (new_quantity, hat_id))
 
-            messagebox.showinfo("Success", "Order placed successfully.")
+            # Get the last inserted order_id for the delivery
+            last_order_id_query = "SELECT LAST_INSERT_ID();"
+            last_order_id_result = self.db_manager.execute_query(last_order_id_query)
+            last_order_id = last_order_id_result[0][0]
+
+            # Calculate the estimated arrival date and insert into delivery
+            order_date_obj = datetime.strptime(order_date, '%Y-%m-%d')
+            estimated_arrival = order_date_obj + timedelta(days=5)
+            insert_delivery_query = "INSERT INTO delivery (order_id, arrival_date) VALUES (%s, %s)"
+            self.db_manager.execute_query(insert_delivery_query, (last_order_id, estimated_arrival))
+
+            messagebox.showinfo("Success", "Order placed and delivery scheduled successfully.")
+
+            # Get the price for the hat
+            hat_price = self.get_hat_price(hat_id)  # You'll implement this method
+
+            # Calculate the total price and tax for the order
+            # Ensure quantity is an integer
+            quantity = int(quantity)
+
+            # Now the multiplication should work
+            total_price = quantity * hat_price
+
+            tax = self.calculate_tax(total_price)  # You'll implement this method
+            payment_method = "Credit Card"  # Example payment method
+
+            # Get the last order ID to link the bill to the correct order
+            last_order_id = self.get_last_inserted_id()
+
+            # Create the bill
+            self.create_bill(last_order_id, tax, total_price, payment_method)
+
+            # Proceed to payment
+            self.process_payment(last_order_id, total_price + tax)  # You'll implement this method
+
+            messagebox.showinfo("Success", "Order placed, bill created, and payment processed successfully.")
             window.destroy()
+
         except Exception as e:
             messagebox.showerror("Database Error", f"An error occurred: {e}")
 
-    # Add this method to the HatHiveApp class
+        # Implement the get_hat_price method to retrieve the price of a hat from the database
+
+    def get_hat_price(self, hat_id):
+        query = "SELECT price FROM hats WHERE hat_id = %s"
+        result = self.db_manager.execute_query(query, (hat_id,))
+        if result:
+            return Decimal(result[0][0])
+        else:
+            raise Exception("Hat not found.")
+
+        # Implement the calculate_tax method to calculate the tax based on the total price
+
+    def calculate_tax(self, total_price):
+        tax_rate = Decimal('0.07')  # Example tax rate of 7%
+        return total_price * tax_rate
+
+        # Implement the get_last_inserted_id method to get the ID of the last inserted record
+
+    def get_last_inserted_id(self):
+        last_order_id_query = "SELECT LAST_INSERT_ID();"
+        last_order_id_result = self.db_manager.execute_query(last_order_id_query)
+        return last_order_id_result[0][0]
+
+        # Implement the create_bill method to create a bill record in the database
+
+    def create_bill(self, order_id, tax, total_price, payment_method):
+        insert_bill_query = """
+          INSERT INTO bills (order_id, tax, price, payment_method) VALUES (%s, %s, %s, %s)
+          """
+        self.db_manager.execute_query(insert_bill_query, (order_id, tax, total_price, payment_method))
+
+    # Implement the process_payment method to handle payment processing
+    def process_payment(self, order_id, amount_due):
+        # In a real system, you would now interact with a payment processor/gateway
+        # For this example, we'll simulate a successful payment by updating the bill status
+
+        # Simulate generating a secure hash for the transaction (in reality, use secure methods)
+        transaction_id = hashlib.sha256(f"{order_id}{amount_due}".encode()).hexdigest()
+
+        update_payment_query = """
+        UPDATE bills SET payment_status = %s, transaction_id = %s WHERE order_id = %s
+        """
+        self.db_manager.execute_query(update_payment_query, ('Paid', transaction_id, order_id))
+
+    def view_deliveries(self):
+        self.query_result.delete('1.0', tk.END)  # Clear existing content
+        query = "SELECT delivery.delivery_id, orders.order_id, delivery.arrival_date FROM delivery JOIN orders ON delivery.order_id = orders.order_id"
+        try:
+            records = self.db_manager.execute_query(query)
+            print("Fetched records:", records)  # Debugging line
+
+            if not records:
+                self.query_result.insert(tk.END, "No delivery records found.\n")
+                return
+
+            # Dynamically compute column widths
+            col_widths = [max(len(str(row[i])) for row in records) for i in range(len(records[0]))]
+
+            headers = ["Delivery ID", "Order ID", "Arrival Date"]
+            header_string = "".join(h.ljust(col_widths[i] + 2) for i, h in enumerate(headers))
+
+            # Add headers
+            self.query_result.insert(tk.END, header_string + "\n")
+            self.query_result.insert(tk.END, "-" * len(header_string) + "\n")
+
+            for record in records:
+                formatted_record = "".join(str(field).ljust(col_widths[i] + 2) for i, field in enumerate(record))
+                self.query_result.insert(tk.END, formatted_record + "\n")
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
 
     def view_orders(self):
         query = "SELECT * FROM orders"
@@ -471,6 +599,32 @@ class HatHiveApp:
                 messagebox.showinfo("Success", "All data has been deleted.")
             except Exception as e:
                 messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def view_bills(self):
+        self.query_result.delete('1.0', tk.END)  # Clear existing content in the text box
+        query = "SELECT bill_id, order_id, tax, price, payment_method, payment_status FROM bills"
+        try:
+            records = self.db_manager.execute_query(query)
+
+            if not records:
+                self.query_result.insert(tk.END, "No billing records found.\n")
+                return
+
+            # Dynamically compute column widths
+            col_widths = [max(len(str(row[i])) for row in records) for i in range(len(records[0]))]
+
+            headers = ["Bill ID", "Order ID", "Tax", "Price", "Payment Method", "Payment Status"]
+            header_string = "".join(h.ljust(col_widths[i] + 2) for i, h in enumerate(headers))
+
+            # Add headers
+            self.query_result.insert(tk.END, header_string + "\n")
+            self.query_result.insert(tk.END, "-" * len(header_string) + "\n")
+
+            for record in records:
+                formatted_record = "".join(str(field).ljust(col_widths[i] + 2) for i, field in enumerate(record))
+                self.query_result.insert(tk.END, formatted_record + "\n")
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
 
     def on_closing(self):
         if self.db_manager:
